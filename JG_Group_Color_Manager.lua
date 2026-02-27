@@ -1,6 +1,9 @@
--- Group Color Manager for Reaper
--- Automatically colors tracks based on their active edit groups
--- Uses group ribbon colors and restores original colors when groups are bypassed
+-- @description Group Color Manager
+-- @author JG
+-- @version 1.0
+-- @about
+--   Automatically colors tracks based on their active edit groups.
+--   Uses group ribbon colors and restores original colors when groups are bypassed.
 
 local script_name = "Group Color Manager"
 local ext_state_section = "GroupColorManager"

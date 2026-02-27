@@ -1,28 +1,26 @@
---[[
-ReaScript Name: Color selected items by group (contrasting palette with min/max control)
-Author: ChatGPT (Reaper DAW Ultimate Assistant)
-Description:
-  Dieses Script färbt ausgewählte Items nach Startzeit-Gruppen ein.
-  Die Farben kommen aus einer kontrastreichen Palette.
-  Zusätzlich kannst du min/max Werte definieren, damit nichts zu dunkel
-  oder zu grell wird.
---]]
+-- @description Color selected items by start time
+-- @author JG
+-- @version 1.0
+-- @about
+--   Colors selected items based on their start position.
+--   Items starting at the same time (within a tolerance) get the same color.
+--   Uses a contrasting palette with min/max RGB control to prevent colors from being too dark or bright.
 
 -- SETTINGS ------------------------------
-local tolerance   = 0.05   -- Sekunden Toleranz für gleiche Startzeit
-local hue_step    = 0.12   -- Schrittweite im Farbkreis (kleiner = mehr Farben, größer = weniger ähnliche Nachbarn)
+local tolerance   = 0.05   -- Seconds tolerance for matching start times
+local hue_step    = 0.12   -- Step size in color wheel (smaller = more colors, larger = less similar neighbors)
 
--- Grenzen für RGB-Werte (0–255)
-local min_val     = 18     -- keine dunkleren Farben
-local max_val     = 230    -- keine helleren Farben
+-- Limits for RGB values (0-255)
+local min_val     = 18     -- No colors darker than this
+local max_val     = 230    -- No colors brighter than this
 ------------------------------------------
 
--- Hilfsfunktion: clamp (Wert begrenzen)
+-- Helper function: clamp values
 local function clamp(x, lo, hi)
   if x < lo then return lo elseif x > hi then return hi else return x end
 end
 
--- HSL → RGB (Hue 0..1, Sat 0..1, Light 0..1)
+-- HSL to RGB (Hue 0..1, Sat 0..1, Light 0..1)
 local function hsl_to_rgb(h, s, l)
   local function hue_to_rgb(p, q, t)
     if t < 0 then t = t + 1 end
@@ -50,11 +48,11 @@ local function hsl_to_rgb(h, s, l)
   return r, g, b
 end
 
--- Palette-Generator mit Kontrasten
+-- Palette generator with contrast
 local hue_index = 0
 local function next_color()
   local h = (hue_index * hue_step) % 1.0
-  -- Abwechselnd Sättigung und Helligkeit für Kontrast
+  -- Alternate saturation and lightness for contrast
   local sat = (hue_index % 2 == 0) and 0.75 or 0.45
   local lit = (hue_index % 3 == 0) and 0.55 or 0.70
   hue_index = hue_index + 1
@@ -62,7 +60,7 @@ local function next_color()
   return reaper.ColorToNative(r, g, b) | 0x1000000
 end
 
--- Gruppen sammeln
+-- Collect groups
 local groups = {}
 local num_sel = reaper.CountSelectedMediaItems(0)
 if num_sel == 0 then return end
@@ -88,7 +86,7 @@ for i = 0, num_sel-1 do
   table.insert(found_group.items, item)
 end
 
--- Farben anwenden
+-- Apply colors
 reaper.Undo_BeginBlock()
 for _, group in pairs(groups) do
   for _, item in ipairs(group.items) do

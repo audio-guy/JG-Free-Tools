@@ -1,3 +1,11 @@
+-- @description Transfer cuts, gaps and fades to other tracks
+-- @author JG
+-- @version 1.0
+-- @about
+--   Matches the cuts and gaps of a reference track to other selected tracks.
+--   The track with the most selected items is automatically used as the reference.
+--   Also copies fade-in and fade-out parameters to the target items.
+
 local track_data = {}
 
 for i = 0, reaper.CountSelectedMediaItems(0) - 1 do
@@ -21,7 +29,7 @@ for _, v in pairs(track_data) do
 end
 
 if #track_list < 2 then
-  reaper.ShowMessageBox("Select items on at least 2 tracks", "Fehler", 0)
+  reaper.ShowMessageBox("Select items on at least 2 tracks", "Error", 0)
   return
 end
 

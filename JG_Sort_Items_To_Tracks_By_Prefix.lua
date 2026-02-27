@@ -1,5 +1,9 @@
--- Sort items to tracks based on 3-digit prefix in take name
--- Also sorts to track lanes based on T001, T002, etc. suffix
+-- @description Sort items to tracks by prefix and lane
+-- @author JG
+-- @version 1.0
+-- @about
+--   Sorts selected items to tracks based on a 3-digit prefix in the take name.
+--   It also assigns them to specific track lanes based on a "T001", "T002", etc., suffix.
 
 function Msg(text)
     reaper.ShowConsoleMsg(tostring(text) .. "\n")
@@ -37,7 +41,7 @@ function Main()
     
     local itemCount = reaper.CountSelectedMediaItems(0)
     if itemCount == 0 then
-        reaper.ShowMessageBox("Keine Items ausgewählt!", "Fehler", 0)
+        reaper.ShowMessageBox("No items selected!", "Error", 0)
         return
     end
     
@@ -69,7 +73,7 @@ function Main()
                     else
                         -- No lane suffix, set to lane 0
                         reaper.SetMediaItemInfo_Value(item, "I_FIXEDLANE", 0)
-                        Msg(string.format("Moved: %s -> Lane 1 (kein T-Suffix gefunden)", takeName))
+                        Msg(string.format("Moved: %s -> Lane 1 (no T-suffix found)", takeName))
                     end
                     
                     movedCount = movedCount + 1
@@ -79,26 +83,26 @@ function Main()
                 end
             else
                 notFoundCount = notFoundCount + 1
-                table.insert(errorItems, "Kein Prefix - " .. takeName)
+                table.insert(errorItems, "No Prefix - " .. takeName)
             end
         end
     end
     
     -- Report results
-    local message = string.format("%d Items sortiert", movedCount)
+    local message = string.format("%d Items sorted", movedCount)
     if notFoundCount > 0 then
-        message = message .. string.format("\n%d Items konnten nicht sortiert werden:", notFoundCount)
+        message = message .. string.format("\n%d Items could not be sorted:", notFoundCount)
         for i, errItem in ipairs(errorItems) do
             if i <= 10 then  -- Show max 10 errors
                 message = message .. "\n  - " .. errItem
             end
         end
         if #errorItems > 10 then
-            message = message .. string.format("\n  ... und %d weitere", #errorItems - 10)
+            message = message .. string.format("\n  ... and %d more", #errorItems - 10)
         end
     end
     
-    reaper.ShowMessageBox(message, "Sortierung abgeschlossen", 0)
+    reaper.ShowMessageBox(message, "Sorting complete", 0)
     
     reaper.Undo_EndBlock("Sort items by take name prefix", -1)
     reaper.UpdateArrange()

@@ -1,6 +1,7 @@
--- Reaper script to color all selected items that are vertically aligned to a random color
--- Author: ChatGPT
--- Version: 1.0
+-- @description Color items vertically
+-- @author JG
+-- @version 1.0
+-- @about Colors all selected items that are vertically aligned to a random color.
 
 function getRandomColor()
     return reaper.ColorToNative(math.random(0,255), math.random(0,255), math.random(0,255))|0x1000000

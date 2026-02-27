@@ -1,10 +1,13 @@
--- @description Rename Source Files to Item Names
--- @author Julius Gass
--- @version 1.2
+-- @description Rename source files to item names
+-- @author JG
+-- @version 1.0
+-- @about
+--   Renames the underlying source media files on your hard drive to match their current item names in REAPER.
+--   Requires the SWS Extension.
 
--- Prüfe ob SWS Extension installiert ist
+-- Check if SWS Extension is installed
 if not reaper.BR_SetTakeSourceFromFile then
-  reaper.ShowMessageBox("Dieses Script benötigt die SWS Extension!", "Error", 0)
+  reaper.ShowMessageBox("This script requires the SWS Extension!", "Error", 0)
   return
 end
 
@@ -13,14 +16,14 @@ reaper.PreventUIRefresh(1)
 
 local item_count = reaper.CountSelectedMediaItems(0)
 if item_count == 0 then
-  reaper.ShowMessageBox("Bitte Items auswählen!", "Error", 0)
+  reaper.ShowMessageBox("Please select items!", "Error", 0)
   return
 end
 
 local renamed = 0
 local errors = {}
 
--- Erst alle Items offline setzen
+-- Set all items offline first
 reaper.Main_OnCommand(40440, 0) -- Set selected media offline
 
 for i = 0, item_count - 1 do
@@ -28,46 +31,46 @@ for i = 0, item_count - 1 do
   local take = reaper.GetActiveTake(item)
   
   if take and not reaper.TakeIsMIDI(take) then
-    -- Item-Namen holen
+    -- Get item name
     local _, item_name = reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", "", false)
     
-    -- Source-Datei Info
+    -- Source file info
     local source = reaper.GetMediaItemTake_Source(take)
     local old_path = reaper.GetMediaSourceFileName(source, "")
     
     if old_path ~= "" and item_name ~= "" then
-      -- Pfad und Dateiendung extrahieren
+      -- Extract path and file extension
       local dir = old_path:match("^(.*[\\/])") or ""
       local ext = old_path:match("(%.[^%.]+)$") or ".wav"
       
-      -- Neuer Pfad
+      -- New path
       local new_path = dir .. item_name .. ext
       
-      -- Prüfe ob Zieldatei schon existiert
+      -- Check if target file already exists
       local file_exists = io.open(new_path, "r")
       if file_exists then
         file_exists:close()
-        table.insert(errors, item_name .. ": Datei existiert bereits!")
+        table.insert(errors, item_name .. ": File already exists!")
       else
-        -- Datei umbenennen
+        -- Rename file
         local success, err = os.rename(old_path, new_path)
         
         if success then
-          -- REAPER-Referenz aktualisieren
+          -- Update REAPER reference
           reaper.BR_SetTakeSourceFromFile(take, new_path, false)
           renamed = renamed + 1
         else
-          table.insert(errors, item_name .. ": " .. (err or "Konnte Datei nicht umbenennen"))
+          table.insert(errors, item_name .. ": " .. (err or "Could not rename file"))
         end
       end
     end
   end
 end
 
--- Alle wieder online setzen
+-- Set all back online
 reaper.Main_OnCommand(40439, 0) -- Set selected media online
 
--- Peaks neu aufbauen
+-- Rebuild peaks
 if renamed > 0 then
   reaper.Main_OnCommand(40441, 0)
 end
@@ -76,9 +79,9 @@ reaper.PreventUIRefresh(-1)
 reaper.Undo_EndBlock("Rename Source Files to Item Names", -1)
 reaper.UpdateArrange()
 
--- Ergebnis anzeigen
-local msg = string.format("Erfolgreich umbenannt: %d\nFehler: %d", renamed, #errors)
+-- Show result
+local msg = string.format("Successfully renamed: %d\nErrors: %d", renamed, #errors)
 if #errors > 0 then
-  msg = msg .. "\n\nFehler:\n" .. table.concat(errors, "\n")
+  msg = msg .. "\n\nErrors:\n" .. table.concat(errors, "\n")
 end
-reaper.ShowMessageBox(msg, "Fertig", 0)
+reaper.ShowMessageBox(msg, "Done", 0)

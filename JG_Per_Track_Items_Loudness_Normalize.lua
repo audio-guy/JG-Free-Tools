@@ -1,44 +1,30 @@
--- Per-Track Loudness Normalize  (v2 – Bugfix: Accessor-Zeitbasis)
--- ─────────────────────────────────────────────────────────────────────
--- Alle selektierten Items werden nach Track gruppiert.
--- Pro Track werden ALLE Items gemeinsam als ein Stream analysiert
--- und erhalten anschließend exakt denselben Item-Gain (D_VOL),
--- sodass die gemessene Integrated Loudness dem Zielwert entspricht.
---
--- Änderungen v2:
---  • Accessor-Zeitbasis korrekt: Start = GetAudioAccessorStartTime(),
---    Ende = GetAudioAccessorEndTime() (capped auf Item-Länge).
---    Der Take-Accessor berücksichtigt D_STARTOFFS intern – eigene
---    Offset-Berechnung war falsch und las teilweise falschen/leeren Bereich.
---  • nch wird pro Item ermittelt (nicht einmalig für den ganzen Track)
---  • Stereo-Leistung: (L² + R²) × 0.5  (BS.1770: Kanalzahl-Mittelung)
---  • Fallback-Block greift nur wenn rcnt > 0
---
--- Standard: BS.1770-4 (Integrated Loudness, 400 ms / 75 % Overlap, gated)
--- Analyse-SR intern: 16 kHz (REAPER resampelt on-the-fly; Abweichung
--- gegenüber 48 kHz typisch < 0.1 LU)
---
--- Julius Gaß  •  2025
--- ─────────────────────────────────────────────────────────────────────
+-- @description Per-track loudness normalize
+-- @author JG
+-- @version 1.0
+-- @about
+--   Groups selected items by track and analyzes them as a continuous stream.
+--   Applies the exact same item gain (D_VOL) to all items on that track 
+--   so the measured integrated loudness matches the target LUFS value.
+--   Uses BS.1770-4 standard (Integrated Loudness, 400 ms / 75% Overlap, gated).
 
 local r = reaper
 
 local ANALYSIS_SR = 16000
 
--- ─── Ziel-LUFS abfragen ───────────────────────────────────────────────
+-- ─── Ask for Target LUFS ───────────────────────────────────────────────
 local ok, raw = r.GetUserInputs(
-  "Per-Track Loudness Normalize", 1, "Ziel-LUFS:", "-23")
+  "Per-Track Loudness Normalize", 1, "Target LUFS:", "-23")
 if not ok then return end
 
 local TARGET = tonumber(raw)
 if not TARGET then
-  r.MB("Ungültiger Wert – bitte eine Zahl eingeben (z.B. -23).", "Fehler", 0)
+  r.MB("Invalid value – please enter a number (e.g., -23).", "Error", 0)
   return
 end
 
--- ─── Selektierte Items nach Track gruppieren ──────────────────────────
+-- ─── Group selected items by track ──────────────────────────
 if r.CountSelectedMediaItems(0) == 0 then
-  r.MB("Keine Items ausgewählt.", "Info", 0)
+  r.MB("No items selected.", "Info", 0)
   return
 end
 
@@ -60,7 +46,7 @@ end
 local function kweight_coeffs(sr)
   local pi = math.pi
 
-  -- Stufe 1: High-Shelf +4 dB bei 1681.97 Hz, Q 0.7072
+  -- Stage 1: High-Shelf +4 dB at 1681.97 Hz, Q 0.7072
   local A   = 10 ^ (4 / 40)          -- sqrt(10^(4/20))
   local sqA = math.sqrt(A)
   local f0  = 1681.974450955533
@@ -76,7 +62,7 @@ local function kweight_coeffs(sr)
   local a2  = (A+1) - (A-1)*c0 - 2*sqA*al
   local hs  = {b0/a0, b1/a0, b2/a0, a1/a0, a2/a0}
 
-  -- Stufe 2: Butterworth HP 2. Ord. bei 38.14 Hz
+  -- Stage 2: Butterworth HP 2nd Ord. at 38.14 Hz
   local f1  = 38.13547087602444
   local w1  = 2 * pi * f1 / sr
   local c1, s1 = math.cos(w1), math.sin(w1)
@@ -95,17 +81,17 @@ local function measure_lufs(items)
   local hop      = math.floor(0.1 * sr)   -- 100 ms Hop
   local blk_samp = 4 * hop                -- 400 ms Block
 
-  -- Koeffizienten als Locals für Innerloop-Performance
+  -- Coefficients as locals for innerloop performance
   local hs0,hs1,hs2,ha1,ha2 = hs[1],hs[2],hs[3],hs[4],hs[5]
   local hp0,hp1,hp2,pa1,pa2 = hp[1],hp[2],hp[3],hp[4],hp[5]
 
-  -- Filterzustände (bleiben über Item-Grenzen erhalten → korrekter Stream)
-  local ax1,ax2,ay1,ay2 = 0,0,0,0   -- Ch1 Stufe 1
-  local ap1,ap2,aq1,aq2 = 0,0,0,0   -- Ch1 Stufe 2
-  local bx1,bx2,by1,by2 = 0,0,0,0   -- Ch2 Stufe 1
-  local bp1,bp2,bq1,bq2 = 0,0,0,0   -- Ch2 Stufe 2
+  -- Filter states
+  local ax1,ax2,ay1,ay2 = 0,0,0,0   -- Ch1 Stage 1
+  local ap1,ap2,aq1,aq2 = 0,0,0,0   -- Ch1 Stage 2
+  local bx1,bx2,by1,by2 = 0,0,0,0   -- Ch2 Stage 1
+  local bp1,bp2,bq1,bq2 = 0,0,0,0   -- Ch2 Stage 2
 
-  -- Ringpuffer: 4 Slots à 100 ms (bilden 400-ms-Blöcke mit 75 % Overlap)
+  -- Ring buffer: 4 Slots @ 100 ms (forming 400-ms blocks with 75% Overlap)
   local ring  = {0, 0, 0, 0}
   local rslot = 1
   local rcnt  = 0
@@ -130,15 +116,13 @@ local function measure_lufs(items)
     local tk = r.GetActiveTake(item)
     if not tk or r.TakeIsMIDI(tk) then goto next_item end
 
-    -- Kanalzahl pro Item
+    -- Channel count per item
     local src = r.GetMediaItemTake_Source(tk)
     local nch = math.min(r.GetMediaSourceNumChannels(src), 2)
 
     local acc   = r.CreateTakeAudioAccessor(tk)
 
-    -- ► Bugfix v2: Zeitbasis direkt vom Accessor holen.
-    --   GetAudioAccessorStartTime gibt 0.0, End = Quelldauer ab Startoffset.
-    --   Wir cappen zusätzlich auf die Item-Länge (= was tatsächlich abgespielt wird).
+    -- Timebase directly from Accessor
     local t     = r.GetAudioAccessorStartTime(acc)
     local t_end = math.min(
       r.GetAudioAccessorEndTime(acc),
@@ -152,7 +136,7 @@ local function measure_lufs(items)
       local got = r.GetAudioAccessorSamples(acc, sr, nch, t, want, buf)
       if got <= 0 then break end
 
-      -- ── Inner Loop: K-Gewichtung + Leistungsakkumulation ──────────
+      -- ── Inner Loop: K-Weighting + Power Accumulation ──────────
       if nch == 1 then
         for i = 1, want do
           local x  = buf[i]
@@ -166,7 +150,7 @@ local function measure_lufs(items)
           if rcnt >= hop then close_slot() end
         end
 
-      else  -- Stereo: Kanalleistung mitteln (BS.1770-4)
+      else  -- Stereo: Average channel power (BS.1770-4)
         for i = 0, want - 1 do
           local x1 = buf[i*2+1];  local x2 = buf[i*2+2]
           local yA = hs0*x1 + hs1*ax1 + hs2*ax2 - ha1*ay1 - ha2*ay2
@@ -193,7 +177,7 @@ local function measure_lufs(items)
     ::next_item::
   end
 
-  -- Letzten unvollständigen Slot als Fallback (wichtig bei sehr kurzen Takes)
+  -- Last incomplete slot fallback
   if #blocks == 0 and rcnt > 0 then
     local total = nhops * hop + rcnt
     local z = (ring[1]+ring[2]+ring[3]+ring[4]) / total
@@ -227,7 +211,7 @@ local function measure_lufs(items)
   return -0.691 + 10 * math.log(s2 / #g2) * LOG10
 end
 
--- ─── Hauptverarbeitung ────────────────────────────────────────────────
+-- ─── Main Processing ────────────────────────────────────────────────
 r.Undo_BeginBlock()
 
 for _, grp in ipairs(groups) do
@@ -235,7 +219,7 @@ for _, grp in ipairs(groups) do
   local lufs = measure_lufs(grp.items)
 
   if not lufs or lufs < -90 then
-    r.ShowConsoleMsg("    → zu leise / kein Audio – übersprungen.\n")
+    r.ShowConsoleMsg("    → too quiet / no audio – skipped.\n")
   else
     local gain_db  = TARGET - lufs
     local gain_lin = 10 ^ (gain_db / 20)
@@ -243,10 +227,8 @@ for _, grp in ipairs(groups) do
       r.SetMediaItemInfo_Value(item, "D_VOL", gain_lin)
       r.UpdateItemInProject(item)
     end
-
   end
 end
 
 r.Undo_EndBlock("Per-Track Loudness Normalize", -1)
 r.UpdateArrange()
-
