@@ -69,6 +69,13 @@
       </version>
     </reapack>
 
+    <reapack name="JG_Smart_Insert_Track.lua" type="script" desc="JG Smart Insert Track">
+      <version name="1.0.0" author="Julius Gass">
+        <changelog><![CDATA[Initial release]]></changelog>
+        <source main="main">https://raw.githubusercontent.com/audio-guy/JG_Scripts/main/Tools/JG_Smart_Insert_Track.lua</source>
+      </version>
+    </reapack>
+
     <reapack name="JG_Sort_Items_To_Tracks_By_Prefix.lua" type="script" desc="JG Sort Items To Tracks By Prefix">
       <version name="1.0.0" author="Julius Gass">
         <changelog><![CDATA[Initial release]]></changelog>
@@ -139,10 +146,10 @@
       </version>
     </reapack>
 
-    <reapack name="JG_TrackHeight_normal x3.lua" type="script" desc="JG TrackHeight Normal x3">
+    <reapack name="JG_TrackHeight_normal x4.lua" type="script" desc="JG TrackHeight Normal x4">
       <version name="1.0.0" author="Julius Gass">
         <changelog><![CDATA[Initial release]]></changelog>
-        <source main="main">https://raw.githubusercontent.com/audio-guy/JG_Scripts/main/Tools/JG_TrackHeight_Zoom/JG_TrackHeight_normal%20x3.lua</source>
+        <source main="main">https://raw.githubusercontent.com/audio-guy/JG_Scripts/main/Tools/JG_TrackHeight_Zoom/JG_TrackHeight_normal%20x4.lua</source>
       </version>
     </reapack>
 
