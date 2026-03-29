@@ -35,4 +35,44 @@ if sel_track and visible_h > 0 then
   reaper.UpdateArrange()
 end
 
+-- Horizontal zoom: Razor Edit > Time Selection > Selected Item
+local hz_start, hz_end
+
+for i = 0, num_tracks - 1 do
+  local track = reaper.GetTrack(0, i)
+  local _, razor = reaper.GetSetMediaTrackInfo_String(track, "P_RAZOREDITS", "", false)
+  if razor ~= "" then
+    for rs, re in razor:gmatch("([%d%.]+) ([%d%.]+)") do
+      local s, e = tonumber(rs), tonumber(re)
+      if s and e then
+        if not hz_start or s < hz_start then hz_start = s end
+        if not hz_end or e > hz_end then hz_end = e end
+      end
+    end
+  end
+end
+
+if not hz_start then
+  local ts_start, ts_end = reaper.GetSet_LoopTimeRange2(0, false, false, 0, 0, false)
+  if ts_end > ts_start then
+    hz_start = ts_start
+    hz_end = ts_end
+  end
+end
+
+if not hz_start then
+  local item = reaper.GetSelectedMediaItem(0, 0)
+  if item then
+    local pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+    local len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+    hz_start = pos
+    hz_end = pos + len
+  end
+end
+
+if hz_start and hz_end then
+  local dur = hz_end - hz_start
+  reaper.GetSet_ArrangeView2(0, true, 0, 0, hz_start - dur * 0.05, hz_end + dur * 0.05)
+end
+
 reaper.Undo_EndBlock("Set all track heights to 29px", -1)

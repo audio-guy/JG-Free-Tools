@@ -1,7 +1,7 @@
--- JG_TrackHeight_58.lua
--- Set all tracks to 58px height, center selected track vertically
+-- JG_TrackHeight_348.lua
+-- Set all tracks to 348px height, center selected track vertically
 
-local height = 58
+local height = 348
 
 reaper.Undo_BeginBlock()
 reaper.PreventUIRefresh(1)
@@ -75,4 +75,4 @@ if hz_start and hz_end then
   reaper.GetSet_ArrangeView2(0, true, 0, 0, hz_start - dur * 0.05, hz_end + dur * 0.05)
 end
 
-reaper.Undo_EndBlock("Set all track heights to 58px", -1)
+reaper.Undo_EndBlock("Set all track heights to 348px", -1)
