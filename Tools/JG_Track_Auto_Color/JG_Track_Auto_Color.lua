@@ -1133,7 +1133,7 @@ end
 --------------------------------------------------------------------------------
 
 local function loop()
-  reaper.ImGui_PushFont(ctx, font)
+  reaper.ImGui_PushFont(ctx, font, 14)
   reaper.ImGui_SetNextWindowSize(ctx, WINDOW_W, WINDOW_H, reaper.ImGui_Cond_FirstUseEver())
 
   local visible, open = reaper.ImGui_Begin(ctx, 'Track Auto Color', true)
