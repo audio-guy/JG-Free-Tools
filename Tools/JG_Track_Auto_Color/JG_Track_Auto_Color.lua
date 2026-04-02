@@ -265,9 +265,15 @@ local WINDOW_W, WINDOW_H = 800, 600
 local LEFT_PANE_W = 200
 local AUTO_COLOR_INTERVAL = 0.3
 
-local ctx = reaper.ImGui_CreateContext('Track Auto Color')
-local font = reaper.ImGui_CreateFont('sans-serif', 14)
-reaper.ImGui_Attach(ctx, font)
+local ctx, font
+
+local function ensure_gui_context()
+  if not ctx or not reaper.ImGui_ValidatePtr(ctx, 'ImGui_Context*') then
+    ctx = reaper.ImGui_CreateContext('Track Auto Color')
+    font = reaper.ImGui_CreateFont('sans-serif', 14)
+    reaper.ImGui_Attach(ctx, font)
+  end
+end
 
 local MATCH_MODES = { "contains", "starts_with", "ends_with", "exact" }
 local MATCH_LABELS = { "Contains", "Starts with", "Ends with", "Exact" }
@@ -1248,6 +1254,7 @@ local function loop()
   local show_gui = reaper.GetExtState(EXT_SECTION, "gui_visible") == "1"
 
   if show_gui then
+    ensure_gui_context()
     reaper.ImGui_PushFont(ctx, font, 14)
     reaper.ImGui_SetNextWindowSize(ctx, WINDOW_W, WINDOW_H, reaper.ImGui_Cond_FirstUseEver())
 
