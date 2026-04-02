@@ -697,6 +697,9 @@ local function run_engine()
     local last_applied = tonumber(last_applied_str) or 0
 
     if current_color ~= 0 and current_color ~= last_applied then
+      -- User color: preserve, but store as base so children can inherit
+      reaper.GetSetMediaTrackInfo_String(
+        track, "P_EXT:JG_AutoColor_base", native_to_hex(current_color), true)
       skipped_user = skipped_user + 1
     else
       local resolved_color = nil
