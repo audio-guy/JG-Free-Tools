@@ -141,6 +141,10 @@
         <changelog><![CDATA[Module name = first alias (no separate name field), stale P_EXT cleanup on each engine run, random colors for unmatched tracks (optional), folder darken default 0, orphaned file cleanup on save]]></changelog>
         <source main="main">https://raw.githubusercontent.com/audio-guy/JG_Scripts/main/Tools/JG_Track_Auto_Color/JG_Track_Auto_Color.lua</source>
       </version>
+      <version name="2.2.1" author="Julius Gass">
+        <changelog><![CDATA[Show 0xRRGGBB hex code next to color pickers]]></changelog>
+        <source main="main">https://raw.githubusercontent.com/audio-guy/JG_Scripts/main/Tools/JG_Track_Auto_Color/JG_Track_Auto_Color.lua</source>
+      </version>
     </reapack>
 
   </category>
