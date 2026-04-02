@@ -1011,6 +1011,13 @@ local function draw_top_bar()
 
   reaper.ImGui_SameLine(ctx)
 
+  -- Stop script
+  if reaper.ImGui_Button(ctx, 'Stop', 45, 24) then
+    state.stop_requested = true
+  end
+
+  reaper.ImGui_SameLine(ctx)
+
   -- Status message (auto-clears after 5s)
   if state.status_msg ~= "" then
     if reaper.time_precise() - state.status_time > 5 then
@@ -1271,7 +1278,9 @@ local function loop()
     save_settings()
   end
 
-  reaper.defer(loop)
+  if not state.stop_requested then
+    reaper.defer(loop)
+  end
 end
 
 -- Entry point
