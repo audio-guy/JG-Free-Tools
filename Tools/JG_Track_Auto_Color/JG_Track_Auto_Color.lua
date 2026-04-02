@@ -231,6 +231,7 @@ local DATA_DIR = RESOURCE_PATH .. "/Scripts/JG_TrackColor"
 local MODULES_DIR = DATA_DIR .. "/modules"
 local TOP_LEVEL_FILE = DATA_DIR .. "/top_level_rules.json"
 local MODULE_ORDER_FILE = DATA_DIR .. "/module_order.json"
+local SETTINGS_FILE = DATA_DIR .. "/settings.json"
 
 local WINDOW_W, WINDOW_H = 800, 600
 local LEFT_PANE_W = 200
@@ -271,21 +272,28 @@ local function native_to_hex(n)
   return string.format("#%02X%02X%02X", r, g, b)
 end
 
+local function darken_color(hex, percent)
+  local r_s, g_s, b_s = hex:match("#(%x%x)(%x%x)(%x%x)")
+  if not r_s then return hex end
+  local r, g, b = tonumber(r_s, 16), tonumber(g_s, 16), tonumber(b_s, 16)
+  local factor = 1 - (percent / 100)
+  r = math.floor(r * factor)
+  g = math.floor(g * factor)
+  b = math.floor(b * factor)
+  return string.format("#%02X%02X%02X", r, g, b)
+end
+
 --------------------------------------------------------------------------------
 -- Data Layer
 --------------------------------------------------------------------------------
 
 local state = {
-  top_level = {
-    rules = {},
-    uppercase_enabled = false,
-    uppercase_color = "#808080",
-    lowercase_enabled = false,
-    lowercase_color = "#808080",
-  },
+  top_level = { rules = {} },
   modules = {},
   module_order = {},
+  settings = { uppercase_darken_percent = 30 },
   dirty = false,
+  settings_dirty = false,
   selected_module_idx = 1,
   status_msg = "",
   status_time = 0,
@@ -336,23 +344,27 @@ end
 
 local function load_top_level_rules()
   local data = load_json_file(TOP_LEVEL_FILE)
-  if data then
-    state.top_level.rules = data.rules or {}
-    state.top_level.uppercase_enabled = data.uppercase_enabled or false
-    state.top_level.uppercase_color = data.uppercase_color or "#808080"
-    state.top_level.lowercase_enabled = data.lowercase_enabled or false
-    state.top_level.lowercase_color = data.lowercase_color or "#808080"
+  if data and data.rules then
+    state.top_level.rules = data.rules
+  else
+    state.top_level.rules = {}
   end
 end
 
 local function save_top_level_rules()
-  save_json_file(TOP_LEVEL_FILE, {
-    rules = state.top_level.rules,
-    uppercase_enabled = state.top_level.uppercase_enabled,
-    uppercase_color = state.top_level.uppercase_color,
-    lowercase_enabled = state.top_level.lowercase_enabled,
-    lowercase_color = state.top_level.lowercase_color,
-  })
+  save_json_file(TOP_LEVEL_FILE, { rules = state.top_level.rules })
+end
+
+local function load_settings()
+  local data = load_json_file(SETTINGS_FILE)
+  if data then
+    state.settings.uppercase_darken_percent = data.uppercase_darken_percent or 30
+  end
+end
+
+local function save_settings()
+  save_json_file(SETTINGS_FILE, state.settings)
+  state.settings_dirty = false
 end
 
 local function load_module_order()
@@ -431,6 +443,7 @@ local function load_all_data()
   load_top_level_rules()
   load_module_order()
   load_all_modules()
+  load_settings()
 end
 
 local function save_all_data()
@@ -439,6 +452,7 @@ local function save_all_data()
   for _, mod in ipairs(state.modules) do
     save_module(mod)
   end
+  save_settings()
   state.dirty = false
 end
 
@@ -533,16 +547,9 @@ local function find_module_for_track(track, alias_lookup)
   end
 end
 
--- Check if name has at least one letter and all letters are uppercase
 local function is_all_uppercase(name)
-  if not name:find('%a') then return false end
-  return name == name:upper()
-end
-
--- Check if name has at least one letter and all letters are lowercase
-local function is_all_lowercase(name)
-  if not name:find('%a') then return false end
-  return name == name:lower()
+  local letters = name:gsub("[^%a]", "")
+  return #letters > 0 and letters == letters:upper()
 end
 
 local function match_rule(track_name, rule)
@@ -600,25 +607,15 @@ local function run_engine()
     if current_color ~= 0 and current_color ~= last_applied then
       skipped_user = skipped_user + 1
     else
-      -- Case rules have highest priority (checked before everything else)
-      local resolved_color = nil
-      if state.top_level.uppercase_enabled and is_all_uppercase(track_name) then
-        resolved_color = state.top_level.uppercase_color
-      elseif state.top_level.lowercase_enabled and is_all_lowercase(track_name) then
-        resolved_color = state.top_level.lowercase_color
-      end
-
       -- Pattern rules (module or top-level)
-      local mod = nil
-      if not resolved_color then
-        mod = find_module_for_track(track, alias_lookup)
-        local rules = mod and mod.rules or state.top_level.rules
+      local mod = find_module_for_track(track, alias_lookup)
+      local rules = mod and mod.rules or state.top_level.rules
+      local resolved_color = nil
 
-        for _, rule in ipairs(rules) do
-          if match_rule(track_name, rule) then
-            resolved_color = rule.color
-            break
-          end
+      for _, rule in ipairs(rules) do
+        if match_rule(track_name, rule) then
+          resolved_color = rule.color
+          break
         end
       end
 
@@ -628,10 +625,16 @@ local function run_engine()
         resolved_color = mod.folder_color
       end
 
-      -- Inherit from parent
+      -- Inherit from parent (use undarkened color stored in P_EXT)
       if not resolved_color then
         local parent = reaper.GetParentTrack(track)
         while parent do
+          local _, parent_base = reaper.GetSetMediaTrackInfo_String(
+            parent, "P_EXT:JG_AutoColor_base", "", false)
+          if parent_base and parent_base ~= "" then
+            resolved_color = parent_base
+            break
+          end
           local pc = reaper.GetTrackColor(parent)
           if pc ~= 0 then
             resolved_color = native_to_hex(pc)
@@ -642,6 +645,16 @@ local function run_engine()
       end
 
       if resolved_color then
+        -- Store the base (undarkened) color for children to inherit
+        reaper.GetSetMediaTrackInfo_String(
+          track, "P_EXT:JG_AutoColor_base", resolved_color, true)
+
+        -- Apply uppercase darkening after color resolution
+        local darken = state.settings.uppercase_darken_percent
+        if darken > 0 and is_all_uppercase(track_name) then
+          resolved_color = darken_color(resolved_color, darken)
+        end
+
         local native = hex_to_native(resolved_color)
         reaper.SetTrackColor(track, native)
         reaper.GetSetMediaTrackInfo_String(
@@ -804,6 +817,18 @@ local function draw_top_bar()
 
   reaper.ImGui_SameLine(ctx)
 
+  -- Uppercase darken slider
+  reaper.ImGui_SetNextItemWidth(ctx, 120)
+  local dk_chg, dk_val = reaper.ImGui_SliderInt(ctx, 'UPPERCASE darken %',
+    state.settings.uppercase_darken_percent, 0, 80)
+  if dk_chg then
+    state.settings.uppercase_darken_percent = dk_val
+    state.settings_dirty = true
+    state.last_fingerprint = "" -- force re-color
+  end
+
+  reaper.ImGui_SameLine(ctx)
+
   -- Status message (auto-clears after 5s)
   if state.status_msg ~= "" then
     if reaper.time_precise() - state.status_time > 5 then
@@ -815,35 +840,6 @@ local function draw_top_bar()
 end
 
 local function draw_tab_top_level()
-  -- Case rules (highest priority)
-  reaper.ImGui_Text(ctx, 'Case rules (highest priority):')
-
-  -- ALL UPPERCASE
-  local uc_chg, uc_val = reaper.ImGui_Checkbox(ctx, 'ALL UPPERCASE', state.top_level.uppercase_enabled)
-  if uc_chg then state.top_level.uppercase_enabled = uc_val; state.dirty = true end
-  if state.top_level.uppercase_enabled then
-    reaper.ImGui_SameLine(ctx)
-    local uc_col = hex_to_int(state.top_level.uppercase_color)
-    local uc_col_chg, uc_col_new = reaper.ImGui_ColorEdit3(ctx, '##uc_col', uc_col,
-      reaper.ImGui_ColorEditFlags_NoInputs())
-    if uc_col_chg then state.top_level.uppercase_color = int_to_hex(uc_col_new); state.dirty = true end
-  end
-
-  -- all lowercase
-  local lc_chg, lc_val = reaper.ImGui_Checkbox(ctx, 'all lowercase', state.top_level.lowercase_enabled)
-  if lc_chg then state.top_level.lowercase_enabled = lc_val; state.dirty = true end
-  if state.top_level.lowercase_enabled then
-    reaper.ImGui_SameLine(ctx)
-    local lc_col = hex_to_int(state.top_level.lowercase_color)
-    local lc_col_chg, lc_col_new = reaper.ImGui_ColorEdit3(ctx, '##lc_col', lc_col,
-      reaper.ImGui_ColorEditFlags_NoInputs())
-    if lc_col_chg then state.top_level.lowercase_color = int_to_hex(lc_col_new); state.dirty = true end
-  end
-
-  reaper.ImGui_Separator(ctx)
-
-  -- Pattern rules
-  reaper.ImGui_Text(ctx, 'Pattern rules:')
   reaper.ImGui_Text(ctx, 'Pattern')
   reaper.ImGui_SameLine(ctx, 190)
   reaper.ImGui_Text(ctx, 'Match')
@@ -1205,6 +1201,11 @@ local function loop()
   if state.dirty then
     save_all_data()
     state.last_fingerprint = "" -- force engine re-run on next check
+  end
+
+  -- Save settings separately (slider changes)
+  if state.settings_dirty then
+    save_settings()
   end
 
   if open then

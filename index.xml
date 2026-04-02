@@ -125,6 +125,10 @@
         <changelog><![CDATA[Add case rules (ALL UPPERCASE / all lowercase) with highest priority, remove skip folders option]]></changelog>
         <source main="main">https://raw.githubusercontent.com/audio-guy/JG_Scripts/main/Tools/JG_Track_Auto_Color/JG_Track_Auto_Color.lua</source>
       </version>
+      <version name="1.3.0" author="Julius Gass">
+        <changelog><![CDATA[Replace case rules with uppercase darkening: UPPERCASE tracks get their resolved color darkened by configurable %. Children inherit the undarkened color.]]></changelog>
+        <source main="main">https://raw.githubusercontent.com/audio-guy/JG_Scripts/main/Tools/JG_Track_Auto_Color/JG_Track_Auto_Color.lua</source>
+      </version>
     </reapack>
 
   </category>
