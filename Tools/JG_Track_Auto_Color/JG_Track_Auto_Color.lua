@@ -276,7 +276,13 @@ end
 --------------------------------------------------------------------------------
 
 local state = {
-  top_level = { rules = {} },
+  top_level = {
+    rules = {},
+    uppercase_enabled = false,
+    uppercase_color = "#808080",
+    lowercase_enabled = false,
+    lowercase_color = "#808080",
+  },
   modules = {},
   module_order = {},
   dirty = false,
@@ -330,15 +336,23 @@ end
 
 local function load_top_level_rules()
   local data = load_json_file(TOP_LEVEL_FILE)
-  if data and data.rules then
-    state.top_level.rules = data.rules
-  else
-    state.top_level.rules = {}
+  if data then
+    state.top_level.rules = data.rules or {}
+    state.top_level.uppercase_enabled = data.uppercase_enabled or false
+    state.top_level.uppercase_color = data.uppercase_color or "#808080"
+    state.top_level.lowercase_enabled = data.lowercase_enabled or false
+    state.top_level.lowercase_color = data.lowercase_color or "#808080"
   end
 end
 
 local function save_top_level_rules()
-  save_json_file(TOP_LEVEL_FILE, { rules = state.top_level.rules })
+  save_json_file(TOP_LEVEL_FILE, {
+    rules = state.top_level.rules,
+    uppercase_enabled = state.top_level.uppercase_enabled,
+    uppercase_color = state.top_level.uppercase_color,
+    lowercase_enabled = state.top_level.lowercase_enabled,
+    lowercase_color = state.top_level.lowercase_color,
+  })
 end
 
 local function load_module_order()
@@ -519,6 +533,18 @@ local function find_module_for_track(track, alias_lookup)
   end
 end
 
+-- Check if name has at least one letter and all letters are uppercase
+local function is_all_uppercase(name)
+  if not name:find('%a') then return false end
+  return name == name:upper()
+end
+
+-- Check if name has at least one letter and all letters are lowercase
+local function is_all_lowercase(name)
+  if not name:find('%a') then return false end
+  return name == name:lower()
+end
+
 local function match_rule(track_name, rule)
   local name = track_name:upper()
   local pattern = rule.pattern:upper()
@@ -574,15 +600,22 @@ local function run_engine()
     if current_color ~= 0 and current_color ~= last_applied then
       skipped_user = skipped_user + 1
     else
-      local mod = find_module_for_track(track, alias_lookup)
-      local rules = mod and mod.rules or state.top_level.rules
+      -- Case rules have highest priority (checked before everything else)
       local resolved_color = nil
+      if state.top_level.uppercase_enabled and is_all_uppercase(track_name) then
+        resolved_color = state.top_level.uppercase_color
+      elseif state.top_level.lowercase_enabled and is_all_lowercase(track_name) then
+        resolved_color = state.top_level.lowercase_color
+      end
 
-      for _, rule in ipairs(rules) do
-        if match_rule(track_name, rule) then
-          if is_folder and rule.apply_to_children_only then
-            -- skip rule for folder tracks
-          else
+      -- Pattern rules (module or top-level)
+      local mod = nil
+      if not resolved_color then
+        mod = find_module_for_track(track, alias_lookup)
+        local rules = mod and mod.rules or state.top_level.rules
+
+        for _, rule in ipairs(rules) do
+          if match_rule(track_name, rule) then
             resolved_color = rule.color
             break
           end
@@ -669,7 +702,7 @@ end
 --------------------------------------------------------------------------------
 
 local function new_rule()
-  return { pattern = "", match_mode = "contains", color = "#808080", apply_to_children_only = false }
+  return { pattern = "", match_mode = "contains", color = "#808080" }
 end
 
 local function match_mode_index(mode)
@@ -713,15 +746,6 @@ local function draw_rule_row(rules, idx, prefix)
     reaper.ImGui_ColorEditFlags_NoInputs())
   if col_changed then
     rule.color = int_to_hex(new_col)
-    state.dirty = true
-  end
-
-  reaper.ImGui_SameLine(ctx)
-
-  -- Skip folders checkbox
-  local chk_changed, chk_val = reaper.ImGui_Checkbox(ctx, 'Skip folders', rule.apply_to_children_only)
-  if chk_changed then
-    rule.apply_to_children_only = chk_val
     state.dirty = true
   end
 
@@ -791,6 +815,35 @@ local function draw_top_bar()
 end
 
 local function draw_tab_top_level()
+  -- Case rules (highest priority)
+  reaper.ImGui_Text(ctx, 'Case rules (highest priority):')
+
+  -- ALL UPPERCASE
+  local uc_chg, uc_val = reaper.ImGui_Checkbox(ctx, 'ALL UPPERCASE', state.top_level.uppercase_enabled)
+  if uc_chg then state.top_level.uppercase_enabled = uc_val; state.dirty = true end
+  if state.top_level.uppercase_enabled then
+    reaper.ImGui_SameLine(ctx)
+    local uc_col = hex_to_int(state.top_level.uppercase_color)
+    local uc_col_chg, uc_col_new = reaper.ImGui_ColorEdit3(ctx, '##uc_col', uc_col,
+      reaper.ImGui_ColorEditFlags_NoInputs())
+    if uc_col_chg then state.top_level.uppercase_color = int_to_hex(uc_col_new); state.dirty = true end
+  end
+
+  -- all lowercase
+  local lc_chg, lc_val = reaper.ImGui_Checkbox(ctx, 'all lowercase', state.top_level.lowercase_enabled)
+  if lc_chg then state.top_level.lowercase_enabled = lc_val; state.dirty = true end
+  if state.top_level.lowercase_enabled then
+    reaper.ImGui_SameLine(ctx)
+    local lc_col = hex_to_int(state.top_level.lowercase_color)
+    local lc_col_chg, lc_col_new = reaper.ImGui_ColorEdit3(ctx, '##lc_col', lc_col,
+      reaper.ImGui_ColorEditFlags_NoInputs())
+    if lc_col_chg then state.top_level.lowercase_color = int_to_hex(lc_col_new); state.dirty = true end
+  end
+
+  reaper.ImGui_Separator(ctx)
+
+  -- Pattern rules
+  reaper.ImGui_Text(ctx, 'Pattern rules:')
   reaper.ImGui_Text(ctx, 'Pattern')
   reaper.ImGui_SameLine(ctx, 190)
   reaper.ImGui_Text(ctx, 'Match')

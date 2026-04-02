@@ -121,6 +121,10 @@
         <changelog><![CDATA[Fix color picker (was using wrong format), auto-coloring, English UI, case-insensitive aliases]]></changelog>
         <source main="main">https://raw.githubusercontent.com/audio-guy/JG_Scripts/main/Tools/JG_Track_Auto_Color/JG_Track_Auto_Color.lua</source>
       </version>
+      <version name="1.2.0" author="Julius Gass">
+        <changelog><![CDATA[Add case rules (ALL UPPERCASE / all lowercase) with highest priority, remove skip folders option]]></changelog>
+        <source main="main">https://raw.githubusercontent.com/audio-guy/JG_Scripts/main/Tools/JG_Track_Auto_Color/JG_Track_Auto_Color.lua</source>
+      </version>
     </reapack>
 
   </category>
