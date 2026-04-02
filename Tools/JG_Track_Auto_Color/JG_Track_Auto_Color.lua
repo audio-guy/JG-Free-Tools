@@ -1,6 +1,6 @@
 -- @description Track Auto Color
 -- @author JG
--- @version 2.5.1
+-- @version 2.6.0
 -- @about
 --   Context-aware track coloring system using modules.
 --   Each module is identified by its aliases (first alias = display name).
@@ -254,7 +254,7 @@ end)
 -- Constants & ImGui Setup
 --------------------------------------------------------------------------------
 
-local VERSION = "2.5.1"
+local VERSION = "2.6.0"
 local RESOURCE_PATH = reaper.GetResourcePath()
 local DATA_DIR = RESOURCE_PATH .. "/Scripts/JG_TrackColor"
 local MODULES_DIR = DATA_DIR .. "/modules"
@@ -263,7 +263,6 @@ local SETTINGS_FILE = DATA_DIR .. "/settings.json"
 
 local WINDOW_W, WINDOW_H = 800, 600
 local LEFT_PANE_W = 200
-local AUTO_COLOR_INTERVAL = 0.3
 
 local ctx, font
 
@@ -349,7 +348,6 @@ local state = {
   selected_module_idx = 1,
   status_msg = "",
   status_time = 0,
-  last_fingerprint = "",
   auto_color = true,
 }
 
@@ -542,6 +540,7 @@ local function save_all_data()
   save_settings()
   state.dirty = false
   state.settings_dirty = false
+  cached_alias_dirty = true
 end
 
 --------------------------------------------------------------------------------
@@ -551,10 +550,6 @@ end
 local function get_track_name(track)
   local _, name = reaper.GetSetMediaTrackInfo_String(track, "P_NAME", "", false)
   return name
-end
-
-local function is_folder_track(track)
-  return reaper.GetMediaTrackInfo_Value(track, "I_FOLDERDEPTH") == 1
 end
 
 -- Build lookup: uppercase alias → list of {idx, mod}
@@ -653,54 +648,60 @@ local function match_rule(track_name_upper, rule)
   return false
 end
 
-local function build_fingerprint()
-  local parts = {}
-  local track_count = reaper.CountTracks(0)
-  parts[1] = tostring(track_count)
-  for i = 0, track_count - 1 do
-    local track = reaper.GetTrack(0, i)
-    local name = get_track_name(track)
-    local depth = reaper.GetMediaTrackInfo_Value(track, "I_FOLDERDEPTH")
-    parts[#parts + 1] = name .. "|" .. depth
+-- Cached alias lookup (rebuilt when data changes)
+local cached_alias_lookup = nil
+local cached_alias_dirty = true
+
+local function get_alias_lookup()
+  if not cached_alias_lookup or cached_alias_dirty then
+    cached_alias_lookup = build_alias_lookup()
+    cached_alias_dirty = false
   end
-  return table.concat(parts, "\n")
+  return cached_alias_lookup
 end
 
 local function run_engine()
   reaper.Undo_BeginBlock()
   reaper.PreventUIRefresh(1)
 
+  -- Localize hot-path functions
+  local GetTrack = reaper.GetTrack
+  local GetTrackColor = reaper.GetTrackColor
+  local SetTrackColor = reaper.SetTrackColor
+  local GetParentTrack = reaper.GetParentTrack
+  local GetSetInfo = reaper.GetSetMediaTrackInfo_String
+  local GetInfoVal = reaper.GetMediaTrackInfo_Value
+  local SetInfoVal = reaper.SetMediaTrackInfo_Value
+
   local track_count = reaper.CountTracks(0)
 
   -- 1. Clear all P_EXT:JG_AutoColor_base to prevent stale inheritance
   for i = 0, track_count - 1 do
-    local track = reaper.GetTrack(0, i)
-    reaper.GetSetMediaTrackInfo_String(track, "P_EXT:JG_AutoColor_base", "", true)
+    local track = GetTrack(0, i)
+    GetSetInfo(track, "P_EXT:JG_AutoColor_base", "", true)
   end
 
-  -- 2. Build alias lookup
-  local alias_lookup = build_alias_lookup()
+  -- 2. Use cached alias lookup
+  local alias_lookup = get_alias_lookup()
   local colored = 0
   local skipped_user = 0
   local no_match = 0
 
   -- 3. Process tracks top-down (parents before children)
   for i = 0, track_count - 1 do
-    local track = reaper.GetTrack(0, i)
-    local track_name = get_track_name(track)
+    local track = GetTrack(0, i)
+    local _, track_name = GetSetInfo(track, "P_NAME", "", false)
     local track_name_upper = track_name:upper()
-    local is_folder = is_folder_track(track)
+    local is_folder = GetInfoVal(track, "I_FOLDERDEPTH") == 1
 
     -- User color protection
-    local current_color = reaper.GetTrackColor(track)
-    local _, last_applied_str = reaper.GetSetMediaTrackInfo_String(
-      track, "P_EXT:JG_AutoColor_last", "", false)
+    local current_color = GetTrackColor(track)
+    local _, last_applied_str = GetSetInfo(track, "P_EXT:JG_AutoColor_last", "", false)
     local last_applied = tonumber(last_applied_str) or 0
 
     if current_color ~= 0 and current_color ~= last_applied then
       -- User color: preserve, but store as base so children can inherit
-      reaper.GetSetMediaTrackInfo_String(
-        track, "P_EXT:JG_AutoColor_base", native_to_hex(current_color), true)
+      GetSetInfo(track, "P_EXT:JG_AutoColor_base", native_to_hex(current_color), true)
       skipped_user = skipped_user + 1
     else
       local resolved_color = nil
@@ -742,27 +743,25 @@ local function run_engine()
 
       -- Inherit from parent (use undarkened base color)
       if not resolved_color then
-        local parent = reaper.GetParentTrack(track)
+        local parent = GetParentTrack(track)
         while parent do
-          local _, parent_base = reaper.GetSetMediaTrackInfo_String(
-            parent, "P_EXT:JG_AutoColor_base", "", false)
+          local _, parent_base = GetSetInfo(parent, "P_EXT:JG_AutoColor_base", "", false)
           if parent_base and parent_base ~= "" then
             resolved_color = parent_base
             break
           end
-          local pc = reaper.GetTrackColor(parent)
+          local pc = GetTrackColor(parent)
           if pc ~= 0 then
             resolved_color = native_to_hex(pc)
             break
           end
-          parent = reaper.GetParentTrack(parent)
+          parent = GetParentTrack(parent)
         end
       end
 
       if resolved_color then
         -- Store undarkened base color for children to inherit
-        reaper.GetSetMediaTrackInfo_String(
-          track, "P_EXT:JG_AutoColor_base", resolved_color, true)
+        GetSetInfo(track, "P_EXT:JG_AutoColor_base", resolved_color, true)
 
         -- Module folder darkening
         if is_module_folder then
@@ -773,16 +772,14 @@ local function run_engine()
         end
 
         local native = hex_to_native(resolved_color)
-        reaper.SetTrackColor(track, native)
-        reaper.GetSetMediaTrackInfo_String(
-          track, "P_EXT:JG_AutoColor_last", tostring(native), true)
+        SetTrackColor(track, native)
+        GetSetInfo(track, "P_EXT:JG_AutoColor_last", tostring(native), true)
         colored = colored + 1
       else
         -- Reset tracks that were engine-colored but no longer match
         if last_applied ~= 0 and current_color == last_applied then
-          reaper.SetMediaTrackInfo_Value(track, "I_CUSTOMCOLOR", 0)
-          reaper.GetSetMediaTrackInfo_String(
-            track, "P_EXT:JG_AutoColor_last", "0", true)
+          SetInfoVal(track, "I_CUSTOMCOLOR", 0)
+          GetSetInfo(track, "P_EXT:JG_AutoColor_last", "0", true)
         end
         no_match = no_match + 1
       end
@@ -799,17 +796,13 @@ local function run_engine()
   set_status(table.concat(parts, ", "))
 end
 
-local last_auto_check = 0
+local last_change_count = -1
 local function auto_color_check()
-  local now = reaper.time_precise()
-  if now - last_auto_check < AUTO_COLOR_INTERVAL then return end
-  last_auto_check = now
   if not state.auto_color then return end
-  local fp = build_fingerprint()
-  if fp ~= state.last_fingerprint then
-    state.last_fingerprint = fp
-    run_engine()
-  end
+  local current_count = reaper.GetProjectStateChangeCount(0)
+  if current_count == last_change_count then return end
+  last_change_count = current_count
+  run_engine()
 end
 
 --------------------------------------------------------------------------------
@@ -940,7 +933,7 @@ local function draw_top_bar()
 
   -- Manual trigger
   if reaper.ImGui_Button(ctx, 'Color now', 80, 24) then
-    state.last_fingerprint = ""
+    last_change_count = -1
     run_engine()
   end
 
@@ -1007,7 +1000,7 @@ local function draw_top_bar()
         state.selected_module_idx = 1
         state.dirty = true
         save_all_data()
-        state.last_fingerprint = ""
+        last_change_count = -1
         set_status("Import successful!")
       else
         set_status("Import failed - invalid file")
@@ -1103,6 +1096,25 @@ local function draw_modules()
     end
     reaper.ImGui_SameLine(ctx)
 
+    if reaper.ImGui_Button(ctx, 'Del.##delmod') and #state.modules > 0 then
+      local mod = state.modules[state.selected_module_idx]
+      if mod then
+        local mod_name = get_module_name(mod)
+        local confirm = reaper.MB(
+          'Delete module "' .. mod_name .. '"?',
+          'Track Auto Color', 1)
+        if confirm == 1 then
+          delete_module_file(mod)
+          table.remove(state.modules, state.selected_module_idx)
+          if state.selected_module_idx > #state.modules then
+            state.selected_module_idx = math.max(1, #state.modules)
+          end
+          state.dirty = true
+        end
+      end
+    end
+    reaper.ImGui_SameLine(ctx)
+
     if reaper.ImGui_Button(ctx, 'Dup.##dupmod') and #state.modules > 0 then
       local src = state.modules[state.selected_module_idx]
       if src then
@@ -1120,19 +1132,6 @@ local function draw_modules()
         end
         state.modules[#state.modules + 1] = copy
         state.selected_module_idx = #state.modules
-        state.dirty = true
-      end
-    end
-    reaper.ImGui_SameLine(ctx)
-
-    if reaper.ImGui_Button(ctx, 'Del.##delmod') and #state.modules > 0 then
-      local mod = state.modules[state.selected_module_idx]
-      if mod then
-        delete_module_file(mod)
-        table.remove(state.modules, state.selected_module_idx)
-        if state.selected_module_idx > #state.modules then
-          state.selected_module_idx = math.max(1, #state.modules)
-        end
         state.dirty = true
       end
     end
@@ -1278,7 +1277,7 @@ local function loop()
 
   if state.dirty then
     save_all_data()
-    state.last_fingerprint = ""
+    last_change_count = -1
   end
 
   if state.settings_dirty then

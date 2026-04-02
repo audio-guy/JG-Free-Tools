@@ -173,6 +173,10 @@
         <changelog><![CDATA[Fix invalid ImGui context when toggling GUI back on after background mode. Add Stop button. Lazy context creation.]]></changelog>
         <source main="main">https://raw.githubusercontent.com/audio-guy/JG_Scripts/main/Tools/JG_Track_Auto_Color/JG_Track_Auto_Color.lua</source>
       </version>
+      <version name="2.6.0" author="Julius Gass">
+        <changelog><![CDATA[Performance: replace fingerprint polling with GetProjectStateChangeCount for instant change detection. Cache alias lookup. Localize REAPER API calls in engine loop. Module delete button next to + with confirmation dialog.]]></changelog>
+        <source main="main">https://raw.githubusercontent.com/audio-guy/JG_Scripts/main/Tools/JG_Track_Auto_Color/JG_Track_Auto_Color.lua</source>
+      </version>
     </reapack>
 
     <reapack name="JG_Track_Auto_Color_Toggle_GUI.lua" type="script" desc="JG Track Auto Color - Toggle GUI">
