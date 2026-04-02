@@ -133,6 +133,10 @@
         <changelog><![CDATA[Major restructure: remove top-level rules (modules only), remove parent filter, remove tabs (flat UI), comma-separated rule pattern aliases, per-module folder darken slider (replaces fixed folder color), tracks without folder context match all modules in order]]></changelog>
         <source main="main">https://raw.githubusercontent.com/audio-guy/JG_Scripts/main/Tools/JG_Track_Auto_Color/JG_Track_Auto_Color.lua</source>
       </version>
+      <version name="2.1.0" author="Julius Gass">
+        <changelog><![CDATA[Module color as central color source, per-rule "use module color" toggle (default on), remove uppercase darkening, folder aliases as comma-separated string, module folder gets darkened module color (default 10%), migration from v2.0 data]]></changelog>
+        <source main="main">https://raw.githubusercontent.com/audio-guy/JG_Scripts/main/Tools/JG_Track_Auto_Color/JG_Track_Auto_Color.lua</source>
+      </version>
     </reapack>
 
   </category>
