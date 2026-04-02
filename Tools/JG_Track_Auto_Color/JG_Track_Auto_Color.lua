@@ -1,11 +1,10 @@
 -- @description Track Auto Color
 -- @author JG
--- @version 2.1.0
+-- @version 2.2.0
 -- @about
 --   Context-aware track coloring system using modules.
---   Each module has a central module color, folder aliases (comma-separated),
---   folder darkening, and pattern-to-color rules.
---   Rules use the module color by default; individual colors are optional.
+--   Each module is identified by its aliases (first alias = display name).
+--   Module color is the central color source; rules can override with custom colors.
 --   Tracks without a folder context are matched against all modules in order.
 --   Auto-colors tracks on changes. ReaImGui GUI for editing.
 
@@ -228,11 +227,12 @@ end)()
 -- Constants & ImGui Setup
 --------------------------------------------------------------------------------
 
-local VERSION = "2.1.0"
+local VERSION = "2.2.0"
 local RESOURCE_PATH = reaper.GetResourcePath()
 local DATA_DIR = RESOURCE_PATH .. "/Scripts/JG_TrackColor"
 local MODULES_DIR = DATA_DIR .. "/modules"
 local MODULE_ORDER_FILE = DATA_DIR .. "/module_order.json"
+local SETTINGS_FILE = DATA_DIR .. "/settings.json"
 
 local WINDOW_W, WINDOW_H = 800, 600
 local LEFT_PANE_W = 200
@@ -282,14 +282,69 @@ local function darken_color(hex, percent)
   return string.format("#%02X%02X%02X", r, g, b)
 end
 
+local function hsl_to_hex(h, s, l)
+  s = s / 100
+  l = l / 100
+  local c = (1 - math.abs(2 * l - 1)) * s
+  local x = c * (1 - math.abs((h / 60) % 2 - 1))
+  local m = l - c / 2
+  local r, g, b
+  if h < 60 then r, g, b = c, x, 0
+  elseif h < 120 then r, g, b = x, c, 0
+  elseif h < 180 then r, g, b = 0, c, x
+  elseif h < 240 then r, g, b = 0, x, c
+  elseif h < 300 then r, g, b = x, 0, c
+  else r, g, b = c, 0, x end
+  r = math.floor((r + m) * 255)
+  g = math.floor((g + m) * 255)
+  b = math.floor((b + m) * 255)
+  return string.format("#%02X%02X%02X", r, g, b)
+end
+
+-- Deterministic color from track name (DJB2 hash → HSL with good visibility)
+local function hash_to_color(name)
+  local hash = 5381
+  for i = 1, #name do
+    hash = ((hash << 5) + hash) + name:byte(i)
+    hash = hash & 0xFFFFFFFF
+  end
+  local h = hash % 360
+  local s = 50 + (hash % 30)
+  local l = 35 + ((hash >> 8) % 20)
+  return hsl_to_hex(h, s, l)
+end
+
 --------------------------------------------------------------------------------
 -- Data Layer
 --------------------------------------------------------------------------------
 
+-- Get display name: first alias, trimmed
+local function get_module_name(mod)
+  local first = mod.folder_aliases:match('^%s*([^,]+)')
+  if first then return first:match('^%s*(.-)%s*$') end
+  return "Unnamed"
+end
+
+local function slugify(name)
+  local s = name:lower()
+  s = s:gsub('[^%w%-_ ]', '')
+  s = s:gsub('%s+', '_')
+  s = s:gsub('_+', '_')
+  s = s:gsub('^_', ''):gsub('_$', '')
+  if s == '' then s = 'module' end
+  return s
+end
+
+local function get_module_slug(mod)
+  return slugify(get_module_name(mod))
+end
+
 local state = {
   modules = {},
   module_order = {},
+  settings = { random_unmatched = false },
   dirty = false,
+  settings_dirty = false,
   selected_module_idx = 1,
   status_msg = "",
   status_time = 0,
@@ -305,16 +360,6 @@ end
 local function ensure_data_dir()
   reaper.RecursiveCreateDirectory(DATA_DIR, 0)
   reaper.RecursiveCreateDirectory(MODULES_DIR, 0)
-end
-
-local function slugify(name)
-  local s = name:lower()
-  s = s:gsub('[^%w%-_ ]', '')
-  s = s:gsub('%s+', '_')
-  s = s:gsub('_+', '_')
-  s = s:gsub('^_', ''):gsub('_$', '')
-  if s == '' then s = 'module' end
-  return s
 end
 
 local function load_json_file(path)
@@ -338,6 +383,20 @@ local function save_json_file(path, data)
   return true
 end
 
+local function load_settings()
+  local data = load_json_file(SETTINGS_FILE)
+  if data then
+    if data.random_unmatched ~= nil then
+      state.settings.random_unmatched = data.random_unmatched
+    end
+  end
+end
+
+local function save_settings()
+  save_json_file(SETTINGS_FILE, state.settings)
+  state.settings_dirty = false
+end
+
 local function load_module_order()
   local data = load_json_file(MODULE_ORDER_FILE)
   if data and type(data) == 'table' then
@@ -350,7 +409,7 @@ end
 local function save_module_order()
   local order = {}
   for _, mod in ipairs(state.modules) do
-    order[#order + 1] = slugify(mod.name) .. ".json"
+    order[#order + 1] = get_module_slug(mod) .. ".json"
   end
   save_json_file(MODULE_ORDER_FILE, order)
 end
@@ -359,7 +418,6 @@ local function load_module(filename)
   local path = MODULES_DIR .. "/" .. filename
   local data = load_json_file(path)
   if not data then return nil end
-  data.name = data.name or filename:gsub('%.json$', '')
 
   -- Migrate folder_aliases: array → comma-separated string
   if type(data.folder_aliases) == 'table' then
@@ -368,16 +426,39 @@ local function load_module(filename)
     data.folder_aliases = ""
   end
 
+  -- Migrate name → prepend to folder_aliases if not already present
+  if data.name then
+    local name_upper = data.name:upper()
+    local found = false
+    for alias in data.folder_aliases:gmatch('[^,]+') do
+      if alias:match('^%s*(.-)%s*$'):upper() == name_upper then
+        found = true
+        break
+      end
+    end
+    if not found and data.name ~= "" then
+      if data.folder_aliases == "" then
+        data.folder_aliases = data.name
+      else
+        data.folder_aliases = data.name .. ", " .. data.folder_aliases
+      end
+    end
+    data.name = nil
+  end
+
+  -- Fallback: if still empty, use filename
+  if data.folder_aliases == "" then
+    data.folder_aliases = filename:gsub('%.json$', '')
+  end
+
   -- Migrate folder_color → module_color
   data.module_color = data.module_color or data.folder_color or "#808080"
-  data.folder_darken_percent = data.folder_darken_percent or 10
+  data.folder_darken_percent = data.folder_darken_percent or 0
   data.rules = data.rules or {}
 
   -- Ensure rules have use_module_color
   for _, rule in ipairs(data.rules) do
-    if rule.use_module_color == nil then
-      rule.use_module_color = true
-    end
+    if rule.use_module_color == nil then rule.use_module_color = true end
     rule.color = rule.color or "#808080"
     rule.pattern = rule.pattern or ""
     rule.match_mode = rule.match_mode or "contains"
@@ -387,13 +468,13 @@ local function load_module(filename)
 end
 
 local function save_module(mod)
-  local slug = slugify(mod.name)
+  local slug = get_module_slug(mod)
   local path = MODULES_DIR .. "/" .. slug .. ".json"
   save_json_file(path, mod)
 end
 
 local function delete_module_file(mod)
-  local slug = slugify(mod.name)
+  local slug = get_module_slug(mod)
   local path = MODULES_DIR .. "/" .. slug .. ".json"
   os.remove(path)
 end
@@ -432,14 +513,34 @@ end
 local function load_all_data()
   load_module_order()
   load_all_modules()
+  load_settings()
 end
 
 local function save_all_data()
   save_module_order()
+
+  -- Save all modules, collect new filenames
+  local new_files = {}
   for _, mod in ipairs(state.modules) do
+    local filename = get_module_slug(mod) .. ".json"
+    new_files[filename] = true
     save_module(mod)
   end
+
+  -- Clean up orphaned module files
+  local i = 0
+  while true do
+    local file = reaper.EnumerateFiles(MODULES_DIR, i)
+    if not file then break end
+    if file:match('%.json$') and not new_files[file] then
+      os.remove(MODULES_DIR .. "/" .. file)
+    end
+    i = i + 1
+  end
+
+  save_settings()
   state.dirty = false
+  state.settings_dirty = false
 end
 
 --------------------------------------------------------------------------------
@@ -503,20 +604,20 @@ local function find_module_as_folder(track_name, alias_lookup)
 end
 
 -- Match track name against rule; pattern supports comma-separated aliases
-local function match_rule(track_name, rule)
-  local name = track_name:upper()
+-- All matching is case-insensitive
+local function match_rule(track_name_upper, rule)
   for pat in rule.pattern:gmatch('[^,]+') do
     pat = pat:match('^%s*(.-)%s*$'):upper()
     if pat ~= '' then
       local matched = false
       if rule.match_mode == "contains" then
-        matched = string.find(name, pat, 1, true) ~= nil
+        matched = string.find(track_name_upper, pat, 1, true) ~= nil
       elseif rule.match_mode == "starts_with" then
-        matched = name:sub(1, #pat) == pat
+        matched = track_name_upper:sub(1, #pat) == pat
       elseif rule.match_mode == "ends_with" then
-        matched = name:sub(-#pat) == pat
+        matched = track_name_upper:sub(-#pat) == pat
       elseif rule.match_mode == "exact" then
-        matched = name == pat
+        matched = track_name_upper == pat
       end
       if matched then return true end
     end
@@ -541,15 +642,25 @@ local function run_engine()
   reaper.Undo_BeginBlock()
   reaper.PreventUIRefresh(1)
 
-  local alias_lookup = build_alias_lookup()
   local track_count = reaper.CountTracks(0)
+
+  -- 1. Clear all P_EXT:JG_AutoColor_base to prevent stale inheritance
+  for i = 0, track_count - 1 do
+    local track = reaper.GetTrack(0, i)
+    reaper.GetSetMediaTrackInfo_String(track, "P_EXT:JG_AutoColor_base", "", true)
+  end
+
+  -- 2. Build alias lookup
+  local alias_lookup = build_alias_lookup()
   local colored = 0
   local skipped_user = 0
   local no_match = 0
 
+  -- 3. Process tracks top-down (parents before children)
   for i = 0, track_count - 1 do
     local track = reaper.GetTrack(0, i)
     local track_name = get_track_name(track)
+    local track_name_upper = track_name:upper()
     local is_folder = is_folder_track(track)
 
     -- User color protection
@@ -564,7 +675,7 @@ local function run_engine()
       local resolved_color = nil
       local is_module_folder = false
 
-      -- 1. Check if this track IS a module folder
+      -- Check if this track IS a module folder
       if is_folder then
         local folder_mod = find_module_as_folder(track_name, alias_lookup)
         if folder_mod then
@@ -573,13 +684,13 @@ local function run_engine()
         end
       end
 
-      -- 2. If not a module folder, match rules
+      -- If not a module folder, match rules
       if not is_module_folder then
         local mod = find_module_for_track(track, alias_lookup)
         if mod then
           -- In module context: match that module's rules
           for _, rule in ipairs(mod.rules) do
-            if match_rule(track_name, rule) then
+            if match_rule(track_name_upper, rule) then
               resolved_color = rule.use_module_color and mod.module_color or rule.color
               break
             end
@@ -588,7 +699,7 @@ local function run_engine()
           -- No module context: iterate all modules' rules in order
           for _, m in ipairs(state.modules) do
             for _, rule in ipairs(m.rules) do
-              if match_rule(track_name, rule) then
+              if match_rule(track_name_upper, rule) then
                 resolved_color = rule.use_module_color and m.module_color or rule.color
                 break
               end
@@ -598,7 +709,7 @@ local function run_engine()
         end
       end
 
-      -- 3. Inherit from parent if no match
+      -- Inherit from parent (use undarkened base color)
       if not resolved_color then
         local parent = reaper.GetParentTrack(track)
         while parent do
@@ -615,6 +726,11 @@ local function run_engine()
           end
           parent = reaper.GetParentTrack(parent)
         end
+      end
+
+      -- Random color for unmatched tracks
+      if not resolved_color and state.settings.random_unmatched and track_name ~= "" then
+        resolved_color = hash_to_color(track_name)
       end
 
       if resolved_color then
@@ -720,7 +836,7 @@ local function draw_rule_row(rules, idx, prefix, module_color)
 
   reaper.ImGui_SameLine(ctx)
 
-  -- Color picker: disabled showing module color when M is on, interactive when off
+  -- Color picker: disabled showing module color when M is on
   if rule.use_module_color then
     reaper.ImGui_BeginDisabled(ctx)
     reaper.ImGui_ColorEdit3(ctx, '##col', hex_to_int(module_color),
@@ -775,12 +891,13 @@ end
 local function get_alias_conflicts()
   local alias_mods = {}
   for _, mod in ipairs(state.modules) do
+    local mod_name = get_module_name(mod)
     for alias in mod.folder_aliases:gmatch('[^,]+') do
       alias = alias:match('^%s*(.-)%s*$')
       if alias ~= '' then
         local key = alias:upper()
         if not alias_mods[key] then alias_mods[key] = {} end
-        alias_mods[key][#alias_mods[key] + 1] = mod.name
+        alias_mods[key][#alias_mods[key] + 1] = mod_name
       end
     end
   end
@@ -806,6 +923,20 @@ local function draw_top_bar()
 
   reaper.ImGui_SameLine(ctx)
 
+  -- Random unmatched toggle
+  local ru_changed, ru_val = reaper.ImGui_Checkbox(ctx, 'Random unmatched',
+    state.settings.random_unmatched)
+  if ru_changed then
+    state.settings.random_unmatched = ru_val
+    state.settings_dirty = true
+    state.last_fingerprint = ""
+  end
+  if reaper.ImGui_IsItemHovered(ctx) then
+    reaper.ImGui_SetTooltip(ctx, 'Assign a deterministic random color to tracks with no match')
+  end
+
+  reaper.ImGui_SameLine(ctx)
+
   -- Export
   if reaper.ImGui_Button(ctx, 'Export', 55, 24) then
     local has_js = reaper.APIExists('JS_Dialog_BrowseForSaveFile')
@@ -825,9 +956,10 @@ local function draw_top_bar()
       local export_data = {
         modules = state.modules,
         module_order = {},
+        settings = state.settings,
       }
       for _, mod in ipairs(state.modules) do
-        export_data.module_order[#export_data.module_order + 1] = slugify(mod.name) .. ".json"
+        export_data.module_order[#export_data.module_order + 1] = get_module_slug(mod) .. ".json"
       end
       if save_json_file(export_path, export_data) then
         set_status("Export successful")
@@ -862,6 +994,7 @@ local function draw_top_bar()
         end
         if data.modules then state.modules = data.modules end
         if data.module_order then state.module_order = data.module_order end
+        if data.settings then state.settings = data.settings end
         state.selected_module_idx = 1
         state.dirty = true
         save_all_data()
@@ -896,13 +1029,14 @@ local function draw_modules()
     if reaper.ImGui_BeginChild(ctx, '##mod_list', LEFT_PANE_W, avail_h - btn_h - 8,
         reaper.ImGui_ChildFlags_Borders()) then
       for i, mod in ipairs(state.modules) do
+        local mod_name = get_module_name(mod)
         local has_conflict = false
         for alias in mod.folder_aliases:gmatch('[^,]+') do
           alias = alias:match('^%s*(.-)%s*$')
           if alias ~= '' and conflicts[alias:upper()] then has_conflict = true; break end
         end
 
-        local label = mod.name
+        local label = mod_name
         if has_conflict then label = "! " .. label end
 
         if reaper.ImGui_Selectable(ctx, label .. '##mod' .. i, i == state.selected_module_idx) then
@@ -915,10 +1049,9 @@ local function draw_modules()
     -- Module buttons
     if reaper.ImGui_Button(ctx, '+##newmod') then
       state.modules[#state.modules + 1] = {
-        name = "New Module",
-        folder_aliases = "",
+        folder_aliases = "New Module",
         module_color = "#808080",
-        folder_darken_percent = 10,
+        folder_darken_percent = 0,
         rules = {},
       }
       state.selected_module_idx = #state.modules
@@ -930,7 +1063,17 @@ local function draw_modules()
       local src = state.modules[state.selected_module_idx]
       if src then
         local copy = json.decode(json.encode(src))
-        copy.name = src.name .. " (Copy)"
+        -- Append " (Copy)" to first alias
+        local first = copy.folder_aliases:match('^%s*([^,]+)')
+        if first then
+          first = first:match('^%s*(.-)%s*$')
+          local rest = copy.folder_aliases:match('^[^,]+,(.*)')
+          if rest then
+            copy.folder_aliases = first .. " (Copy), " .. rest:match('^%s*(.-)%s*$')
+          else
+            copy.folder_aliases = first .. " (Copy)"
+          end
+        end
         state.modules[#state.modules + 1] = copy
         state.selected_module_idx = #state.modules
         state.dirty = true
@@ -976,17 +1119,6 @@ local function draw_modules()
       reaper.ImGui_ChildFlags_Borders()) then
     local mod = state.modules[state.selected_module_idx]
     if mod then
-      -- Name
-      reaper.ImGui_Text(ctx, 'Name:')
-      reaper.ImGui_SameLine(ctx)
-      reaper.ImGui_SetNextItemWidth(ctx, right_w - 80)
-      local name_changed, new_name = reaper.ImGui_InputText(ctx, '##modname', mod.name)
-      if name_changed then
-        delete_module_file(mod)
-        mod.name = new_name
-        state.dirty = true
-      end
-
       -- Module color
       reaper.ImGui_Text(ctx, 'Module color:')
       reaper.ImGui_SameLine(ctx)
@@ -998,12 +1130,27 @@ local function draw_modules()
         state.dirty = true
       end
 
-      -- Folder aliases (comma-separated string)
+      -- Folder darken slider
       reaper.ImGui_SameLine(ctx, 0, 20)
-      reaper.ImGui_Text(ctx, 'Folder aliases:')
+      reaper.ImGui_Text(ctx, 'Folder darken:')
       if reaper.ImGui_IsItemHovered(ctx) then
         reaper.ImGui_SetTooltip(ctx,
-          'Folder names that activate this module (case-insensitive, comma-separated)')
+          'Darken the module folder track by this percentage.\nChildren inherit the undarkened module color.')
+      end
+      reaper.ImGui_SameLine(ctx)
+      reaper.ImGui_SetNextItemWidth(ctx, 100)
+      local fd_changed, fd_val = reaper.ImGui_SliderInt(ctx, '##fdarken',
+        mod.folder_darken_percent, 0, 50)
+      if fd_changed then
+        mod.folder_darken_percent = fd_val
+        state.dirty = true
+      end
+
+      -- Aliases (first alias = module name)
+      reaper.ImGui_Text(ctx, 'Aliases:')
+      if reaper.ImGui_IsItemHovered(ctx) then
+        reaper.ImGui_SetTooltip(ctx,
+          'Comma-separated. First entry = module name.\nFolder names that activate this module (case-insensitive).')
       end
       reaper.ImGui_SameLine(ctx)
       reaper.ImGui_SetNextItemWidth(ctx, -1)
@@ -1025,21 +1172,6 @@ local function draw_modules()
             reaper.ImGui_PopStyleColor(ctx)
           end
         end
-      end
-
-      -- Folder darken slider
-      reaper.ImGui_Text(ctx, 'Folder darken:')
-      if reaper.ImGui_IsItemHovered(ctx) then
-        reaper.ImGui_SetTooltip(ctx,
-          'Darken the module folder track by this percentage.\nChildren inherit the undarkened module color.')
-      end
-      reaper.ImGui_SameLine(ctx)
-      reaper.ImGui_SetNextItemWidth(ctx, 120)
-      local fd_changed, fd_val = reaper.ImGui_SliderInt(ctx, '##fdarken',
-        mod.folder_darken_percent, 0, 50)
-      if fd_changed then
-        mod.folder_darken_percent = fd_val
-        state.dirty = true
       end
 
       reaper.ImGui_Separator(ctx)
@@ -1100,6 +1232,10 @@ local function loop()
   if state.dirty then
     save_all_data()
     state.last_fingerprint = ""
+  end
+
+  if state.settings_dirty then
+    save_settings()
   end
 
   if open then

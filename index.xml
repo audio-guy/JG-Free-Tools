@@ -137,6 +137,10 @@
         <changelog><![CDATA[Module color as central color source, per-rule "use module color" toggle (default on), remove uppercase darkening, folder aliases as comma-separated string, module folder gets darkened module color (default 10%), migration from v2.0 data]]></changelog>
         <source main="main">https://raw.githubusercontent.com/audio-guy/JG_Scripts/main/Tools/JG_Track_Auto_Color/JG_Track_Auto_Color.lua</source>
       </version>
+      <version name="2.2.0" author="Julius Gass">
+        <changelog><![CDATA[Module name = first alias (no separate name field), stale P_EXT cleanup on each engine run, random colors for unmatched tracks (optional), folder darken default 0, orphaned file cleanup on save]]></changelog>
+        <source main="main">https://raw.githubusercontent.com/audio-guy/JG_Scripts/main/Tools/JG_Track_Auto_Color/JG_Track_Auto_Color.lua</source>
+      </version>
     </reapack>
 
   </category>
