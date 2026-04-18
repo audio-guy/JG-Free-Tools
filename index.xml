@@ -34,6 +34,13 @@
       </version>
     </reapack>
 
+    <reapack name="JG_Create_Tracks_From_Clipboard.lua" type="script" desc="JG Create Tracks From Clipboard">
+      <version name="1.0.0" author="Julius Gass">
+        <changelog><![CDATA[Initial release – creates named tracks from clipboard text, detects stereo pairs, optional 1:1 HW routing for Virtual Soundcheck]]></changelog>
+        <source main="main">https://raw.githubusercontent.com/audio-guy/JG_Scripts/main/Tools/JG_Create_Tracks_From_Clipboard.lua</source>
+      </version>
+    </reapack>
+
     <reapack name="JG_Group_Color_Manager.lua" type="script" desc="JG Group Color Manager">
       <version name="1.0.0" author="Julius Gass">
         <changelog><![CDATA[Initial release]]></changelog>
@@ -203,20 +210,6 @@
       <version name="1.0.0" author="Julius Gass">
         <changelog><![CDATA[Initial release — toggles the GUI of the background Track Auto Color engine]]></changelog>
         <source main="main">https://raw.githubusercontent.com/audio-guy/JG_Scripts/main/Tools/JG_Track_Auto_Color/JG_Track_Auto_Color_Toggle_GUI.lua</source>
-      </version>
-    </reapack>
-
-  </category>
-
-  <!-- ═══════════════════════════════════════════════════════════ -->
-  <!--  PRO – Licensed Scripts                                    -->
-  <!-- ═══════════════════════════════════════════════════════════ -->
-  <category name="Pro">
-
-    <reapack name="JG_Create_Tracks_From_Clipboard.lua" type="script" desc="JG Create Tracks From Clipboard [Pro]">
-      <version name="1.0.0" author="Julius Gass">
-        <changelog><![CDATA[Initial release – requires license key (jgscripts.gumroad.com)]]></changelog>
-        <source main="main">https://raw.githubusercontent.com/audio-guy/JG_Scripts/main/Pro/JG_Create_Tracks_From_Clipboard.lua</source>
       </version>
     </reapack>
 
