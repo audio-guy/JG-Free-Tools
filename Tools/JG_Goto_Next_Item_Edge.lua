@@ -7,32 +7,48 @@
 --
 --   Edge logic:
 --     * If an item starts at the edge position, that item is selected
---       (back-to-back items: item B is selected because B starts there).
+--       (back-to-back / crossfade: item B is selected because B starts there).
 --     * Otherwise (gap follows), the item ending at that position is selected.
+--
+--   Crossfades (overlapping items on the same track) are treated as a single
+--   transition: A.end is snapped to B.start, so the cursor lands on B.start
+--   and B is selected — same as a back-to-back cut.
 
 local EPS = 1e-9
 
 local function collect_items()
   local items = {}
+  local tracks = {}
   local sel_track_count = reaper.CountSelectedTracks(0)
   if sel_track_count > 0 then
     for i = 0, sel_track_count - 1 do
-      local tr = reaper.GetSelectedTrack(0, i)
-      local item_count = reaper.CountTrackMediaItems(tr)
-      for j = 0, item_count - 1 do
-        local it = reaper.GetTrackMediaItem(tr, j)
-        local pos = reaper.GetMediaItemInfo_Value(it, "D_POSITION")
-        local len = reaper.GetMediaItemInfo_Value(it, "D_LENGTH")
-        items[#items + 1] = { item = it, s = pos, e = pos + len }
-      end
+      tracks[#tracks + 1] = reaper.GetSelectedTrack(0, i)
     end
   else
-    local item_count = reaper.CountMediaItems(0)
-    for i = 0, item_count - 1 do
-      local it = reaper.GetMediaItem(0, i)
+    local tc = reaper.CountTracks(0)
+    for i = 0, tc - 1 do
+      tracks[#tracks + 1] = reaper.GetTrack(0, i)
+    end
+  end
+
+  for _, tr in ipairs(tracks) do
+    local item_count = reaper.CountTrackMediaItems(tr)
+    local track_items = {}
+    for j = 0, item_count - 1 do
+      local it = reaper.GetTrackMediaItem(tr, j)
       local pos = reaper.GetMediaItemInfo_Value(it, "D_POSITION")
       local len = reaper.GetMediaItemInfo_Value(it, "D_LENGTH")
-      items[#items + 1] = { item = it, s = pos, e = pos + len }
+      track_items[#track_items + 1] = { item = it, s = pos, e = pos + len }
+    end
+    table.sort(track_items, function(a, b) return a.s < b.s end)
+    -- Collapse crossfades: if item k overlaps item k+1, snap k.end to (k+1).start
+    for k = 1, #track_items - 1 do
+      if track_items[k].e > track_items[k + 1].s then
+        track_items[k].e = track_items[k + 1].s
+      end
+    end
+    for _, ti in ipairs(track_items) do
+      items[#items + 1] = ti
     end
   end
   return items
