@@ -1,6 +1,6 @@
 -- @description Track Auto Color
 -- @author JG
--- @version 2.9.0
+-- @version 2.9.1
 -- @about
 --   Context-aware track coloring system using modules.
 --   Each module is identified by its aliases (first alias = display name).
@@ -254,7 +254,7 @@ end)
 -- Constants & ImGui Setup
 --------------------------------------------------------------------------------
 
-local VERSION = "2.9.0"
+local VERSION = "2.9.1"
 local RESOURCE_PATH = reaper.GetResourcePath()
 local DATA_DIR = RESOURCE_PATH .. "/Scripts/JG_TrackColor"
 local MODULES_DIR = DATA_DIR .. "/modules"
@@ -787,18 +787,20 @@ local function run_engine()
       if not is_module_folder then
         local mod = find_module_for_track(track, alias_list)
         if mod then
-          -- In module context: match that module's rules (sorted by specificity)
-          for _, rule in ipairs(sort_rules_by_specificity(mod.rules)) do
-            if match_rule(track_name_upper, rule) then
-              resolved_color = rule.use_module_color and mod.module_color or rule.color
+          -- Global rules from OTHER modules override the surrounding module.
+          -- Own-module global rules are excluded here, so they fall through to
+          -- normal own-module rule matching below (where own module wins).
+          for _, entry in ipairs(global_entries) do
+            if entry.mod ~= mod and match_rule(track_name_upper, entry.rule) then
+              resolved_color = entry.rule.use_module_color and entry.mod.module_color or entry.rule.color
               break
             end
           end
-          -- Fall through to global rules from OTHER modules (own module always wins above)
+          -- Fall through to own module's rules (sorted by specificity)
           if not resolved_color then
-            for _, entry in ipairs(global_entries) do
-              if entry.mod ~= mod and match_rule(track_name_upper, entry.rule) then
-                resolved_color = entry.rule.use_module_color and entry.mod.module_color or entry.rule.color
+            for _, rule in ipairs(sort_rules_by_specificity(mod.rules)) do
+              if match_rule(track_name_upper, rule) then
+                resolved_color = rule.use_module_color and mod.module_color or rule.color
                 break
               end
             end
