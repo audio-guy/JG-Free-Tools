@@ -13,8 +13,29 @@
 --   Crossfades (overlapping items on the same track) are treated as a single
 --   transition: A.end is snapped to B.start, so the cursor lands on B.start
 --   and B is selected — same as a back-to-back cut.
+--
+--   Fixed lanes (REAPER 7): only items on lanes that currently play are
+--   considered. Items on muted/hidden-from-playback lanes are ignored.
 
 local EPS = 1e-9
+
+-- For a fixed-lane track, returns a set of lane indices that currently play.
+-- Returns nil for normal tracks (= no filtering).
+local function playing_lanes(tr)
+  if reaper.GetMediaTrackInfo_Value(tr, "I_FREEMODE") ~= 2 then return nil end
+  local num_lanes = reaper.GetMediaTrackInfo_Value(tr, "I_NUMFIXEDLANES")
+  if num_lanes < 2 then return nil end
+  local lanes, any = {}, false
+  for l = 0, num_lanes - 1 do
+    -- C_LANEPLAYS:n -> 0 = does not play, 1 = plays exclusively, 2 = plays with others
+    if reaper.GetMediaTrackInfo_Value(tr, "C_LANEPLAYS:" .. l) ~= 0 then
+      lanes[l] = true
+      any = true
+    end
+  end
+  if not any then return nil end -- nothing plays at all: fall back to all items
+  return lanes
+end
 
 local function collect_items()
   local items = {}
@@ -32,18 +53,27 @@ local function collect_items()
   end
 
   for _, tr in ipairs(tracks) do
+    local lanes = playing_lanes(tr)
     local item_count = reaper.CountTrackMediaItems(tr)
     local track_items = {}
     for j = 0, item_count - 1 do
       local it = reaper.GetTrackMediaItem(tr, j)
-      local pos = reaper.GetMediaItemInfo_Value(it, "D_POSITION")
-      local len = reaper.GetMediaItemInfo_Value(it, "D_LENGTH")
-      track_items[#track_items + 1] = { item = it, s = pos, e = pos + len }
+      local lane = math.floor(reaper.GetMediaItemInfo_Value(it, "I_FIXEDLANE"))
+      if not lanes or lanes[lane] then
+        local pos = reaper.GetMediaItemInfo_Value(it, "D_POSITION")
+        local len = reaper.GetMediaItemInfo_Value(it, "D_LENGTH")
+        track_items[#track_items + 1] = { item = it, lane = lane, s = pos, e = pos + len }
+      end
     end
-    table.sort(track_items, function(a, b) return a.s < b.s end)
-    -- Collapse crossfades: if item k overlaps item k+1, snap k.end to (k+1).start
+    table.sort(track_items, function(a, b)
+      if a.lane ~= b.lane then return a.lane < b.lane end
+      return a.s < b.s
+    end)
+    -- Collapse crossfades: if item k overlaps item k+1 on the same lane,
+    -- snap k.end to (k+1).start
     for k = 1, #track_items - 1 do
-      if track_items[k].e > track_items[k + 1].s then
+      if track_items[k].lane == track_items[k + 1].lane
+        and track_items[k].e > track_items[k + 1].s then
         track_items[k].e = track_items[k + 1].s
       end
     end

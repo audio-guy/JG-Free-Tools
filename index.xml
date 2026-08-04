@@ -85,6 +85,10 @@
         <changelog><![CDATA[Treat crossfades as a single transition: overlapping items on the same track now collapse to one edge at the next item's start, just like a back-to-back cut. Cursor lands on the start edge, the following item is selected.]]></changelog>
         <source main="main">https://raw.githubusercontent.com/audio-guy/JG_Scripts/main/Tools/JG_Goto_Next_Item_Edge.lua</source>
       </version>
+      <version name="1.2.0" author="Julius Gass">
+        <changelog><![CDATA[Fixed lanes: only items on lanes that currently play are considered. Items on lanes set to not play are skipped, so the cursor no longer stops on edges of inactive lanes. Crossfade collapsing is now per lane.]]></changelog>
+        <source main="main">https://raw.githubusercontent.com/audio-guy/JG_Scripts/main/Tools/JG_Goto_Next_Item_Edge.lua</source>
+      </version>
     </reapack>
 
     <reapack name="JG_Goto_Previous_Item_Edge.lua" type="script" desc="JG Goto Previous Item Edge">
@@ -98,6 +102,10 @@
       </version>
       <version name="1.2.0" author="Julius Gass">
         <changelog><![CDATA[Treat crossfades as a single transition: overlapping items on the same track now collapse to one edge at the next item's start, just like a back-to-back cut. Cursor lands on the start edge, the following item is selected.]]></changelog>
+        <source main="main">https://raw.githubusercontent.com/audio-guy/JG_Scripts/main/Tools/JG_Goto_Previous_Item_Edge.lua</source>
+      </version>
+      <version name="1.3.0" author="Julius Gass">
+        <changelog><![CDATA[Fixed lanes: only items on lanes that currently play are considered. Items on lanes set to not play are skipped, so the cursor no longer stops on edges of inactive lanes. Crossfade collapsing is now per lane.]]></changelog>
         <source main="main">https://raw.githubusercontent.com/audio-guy/JG_Scripts/main/Tools/JG_Goto_Previous_Item_Edge.lua</source>
       </version>
     </reapack>
